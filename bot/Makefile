@@ -13,7 +13,8 @@ run-rest:
 	python3 -m rasa_core.run -d models/dialogue -u models/nlu/current --debug --port 5005 -c rest
 
 run-console:
-	python3 -m rasa_core.run -d models/dialogue -u models/nlu/current --debug
+	python3 run-kafka.py
+	#python3 -m rasa_core.run -d models/dialogue -u models/nlu/current --debug
 
 train-online:
 	python3 -m rasa_core.train -d domain.yml -s data/stories -o models/dialogue --epochs 15 --online --nlu models/nlu/current/

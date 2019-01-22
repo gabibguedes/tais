@@ -18,10 +18,10 @@ def run(core_dir, nlu_dir):
     _endpoints = AvailableEndpoints.read_endpoints(None)
     _interpreter = NaturalLanguageInterpreter.create(nlu_dir)
 
-    kafka_broker = KafkaProducer(host='localhost:29092',
+    kafka_broker = KafkaProducer(host='localhost:29093',
                                  topic='rasa_core_events')
 
-    _tracker_store = InMemoryTrackerStore(domain='localhost:29092',event_broker=kafka_broker)
+    _tracker_store = InMemoryTrackerStore(domain='localhost:29093',event_broker=kafka_broker)
 
     _agent = load_agent(core_dir,
                         interpreter=_interpreter,

@@ -175,6 +175,25 @@ services:
     volumes:
       - ./kafkatest/secrets:/etc/kafka/secrets
 
+  kafka2:
+    image: confluentinc/cp-kafka:latest
+    network_mode: host
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: localhost:32181
+      KAFKA_SECURITY_INTER_BROKER_PROTOCOL: SASL_PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:29094,SASL_PLAINTEXT://localhost:29095
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN 
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_OPTS: -Djava.security.auth.login.config=/etc/kafka/secrets/broker1_jaas.conf
+    extra_hosts:
+      - "moby:127.0.0.1"
+    volumes:
+      - ./kafkatest/secrets:/etc/kafka/secrets
+
   rabbitmq:
     image: rabbitmq:3-management
     ports:

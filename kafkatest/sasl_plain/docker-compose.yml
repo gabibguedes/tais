@@ -1,0 +1,206 @@
+version: '2'
+
+services:
+  # ============================= Rocketchat ==================================
+  rocketchat:
+    image: rocket.chat:0.69.2
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+      - ROOT_URL=http://localhost:3000
+      - MONGO_URL=mongodb://mongo:27017/rocketchat
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASS=admin
+    ports:
+      - 3000:3000
+    depends_on:
+      - mongo
+
+  mongo:
+    image: mongo:3.2
+    restart: unless-stopped
+    volumes:
+      - ./data/db:/data/db
+    command: mongod --smallfiles --oplogSize 128
+
+
+
+  # ================================= Bot =====================================
+  bot:
+    build:
+      context: .
+      dockerfile: ./docker/bot.Dockerfile
+    restart: unless-stopped
+    environment:
+      - TRAINING_EPOCHS=10
+      - ROCKETCHAT_URL=rocketchat:3000
+      - MAX_TYPING_TIME=8
+      - MIN_TYPING_TIME=1
+      - WORDS_PER_SECOND_TYPING=10
+      - ROCKETCHAT_ADMIN_USERNAME=admin
+      - ROCKETCHAT_ADMIN_PASSWORD=admin
+      - ROCKETCHAT_BOT_USERNAME=tais
+      - ROCKETCHAT_BOT_PASSWORD=tais
+
+      # Should be set to 'production' or 'beta' or 'dev'
+      - ENVIRONMENT_NAME=localhost
+      # Last commit hash using this command: git rev-parse HEAD
+      - BOT_VERSION=last-commit-hash
+
+      # Analytics config
+      - ENABLE_ANALYTICS=False
+      - ELASTICSEARCH_URL=elasticsearch:9200
+
+      # HTTP login on elasticsearch
+      # - ELASTICSEARCH_USER=admin
+      # - ELASTICSEARCH_PASSWORD=admin
+      # - ELASTICSEARCH_HTTP_SCHEME=https
+      # - ELASTICSEARCH_PORT=443
+    ports:
+      - 5005:5005
+    volumes:
+      - ./bot:/bot
+      - ./scripts:/scripts
+      - ./rasa_core:/rasa_core
+
+
+  # =================================== Web ===================================
+  web:
+    build:
+      context: .
+      dockerfile: ./docker/web.Dockerfile
+    restart: unless-stopped
+    environment:
+      - PORT=8000
+      - ROCKETCHAT_URL=http://localhost:3000
+      - ALLOWED_HOSTS=localhost
+      - PREFIX_URL=
+    volumes:
+      - ./web:/web
+    ports:
+      - 8000:8000
+    depends_on:
+      - webdb
+
+  webdb:
+    image: postgres:10.5
+    restart: unless-stopped
+    volumes:
+      - ./web/postgres-data:/var/lib/postgresql/data
+
+
+
+  # =============================== Analytics =================================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:6.4.2
+    restart: unless-stopped
+    ports:
+      - 9200:9200
+      - 9300:9300
+    environment:
+      - discovery.type=single-node
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:6.4.2
+    restart: unless-stopped
+    ports:
+      - 5601:5601
+    environment:
+      - SERVER_PORT=5601
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+
+  replay:
+    build:
+      context: .
+      dockerfile: ./analytics/replay.Dockerfile
+    restart: unless-stopped
+    environment:
+      - ROCKETCHAT_URL=rocketchat:3000
+      - ROCKETCHAT_BOT_USERNAME=tais
+      - ROCKETCHAT_BOT_PASSWORD=tais
+      - BOT_URL=http://bot:5005/webhooks/rest/webhook
+    volumes:
+      - ./analytics:/analytics
+    depends_on:
+      - bot
+
+
+
+  # =============================== Notebooks =================================
+  notebooks:
+    build:
+      context: .
+      dockerfile: ./docker/notebooks.Dockerfile
+    volumes:
+      - ./bot:/work/bot
+      - ./notebooks:/work/notebooks
+    ports:
+      - 8888:8888
+
+  # ============================== Kafka ======================================
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    network_mode: host
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 32181
+      ZOOKEEPER_TICK_TIME: 2000
+      KAFKA_OPTS: -Dzookeeper.authProvider.1=org.apache.zookeeper.server.auth.SASLAuthenticationProvider
+                  -Djava.security.auth.login.config=/etc/zookeeper/secrets/zookeeper_jaas.conf
+    extra_hosts:
+      - "moby:127.0.0.1"
+    volumes:
+      - ./kafkatest/zookeeper_secrets:/etc/zookeeper/secrets
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    network_mode: host
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: localhost:32181
+      KAFKA_SECURITY_INTER_BROKER_PROTOCOL: SASL_PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:29092,SASL_PLAINTEXT://localhost:29093
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN 
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_OPTS: -Djava.security.auth.login.config=/etc/kafka/secrets/broker1_jaas.conf
+    extra_hosts:
+      - "moby:127.0.0.1"
+    volumes:
+      - ./kafkatest/secrets:/etc/kafka/secrets
+
+  kafka2:
+    image: confluentinc/cp-kafka:latest
+    network_mode: host
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: localhost:32181
+      KAFKA_SECURITY_INTER_BROKER_PROTOCOL: SASL_PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:29094,SASL_PLAINTEXT://localhost:29095
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN 
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_OPTS: -Djava.security.auth.login.config=/etc/kafka/secrets/broker1_jaas.conf
+    extra_hosts:
+      - "moby:127.0.0.1"
+    volumes:
+      - ./kafkatest/secrets:/etc/kafka/secrets
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - 8080:15672
+      - 5672:5672
+      - 25676:25676
+
+volumes:
+  esdata:
+    driver: local
